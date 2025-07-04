@@ -1,0 +1,15 @@
+# STM32
+Debug/
+*.ioc
+*.launch
+*.log
+*.bin
+*.hex
+
+# Object files
+*.o
+*.ko
+*.obj
+*.elf
+
+
