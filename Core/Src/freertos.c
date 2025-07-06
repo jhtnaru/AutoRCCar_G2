@@ -29,6 +29,10 @@
 #include "usart.h"
 #include "adc.h"
 #include "dma.h"
+#include "stdio.h"
+#include "delay_us.h"
+#include "button.h"
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -47,13 +51,42 @@
 #define M_IN4_PORT				GPIOA
 #define M_IN4_PIN					GPIO_PIN_7
 
-#define BT_B_SPEED				400
-#define BT_M_SPEED				65
+#define BT_B_SPEED				350
+#define BT_M_SPEED				70
+#define SPEED_RATIO				0.2
+
+#define AUTO_B_SPEED				500
+
+#define TRIG1_PORT				GPIOB
+#define TRIG1_PIN					GPIO_PIN_15
+#define TRIG2_PORT				GPIOB
+#define TRIG2_PIN					GPIO_PIN_14
+#define TRIG3_PORT				GPIOB
+#define TRIG3_PIN					GPIO_PIN_13
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
+#ifdef __GNUC__
+/* With GCC small printf (option LD Linker->Libraries->Small printf
+ * set to 'Yes') calls __io_putchar() */
+#define PUTCHAR_PROTOTYPE int  __io_putchar(int ch)
+#else
+#define PUTCHAR_PROTOTYPE int  fputc(int ch, FILE *f)
+#endif /* __GNUC__*/
 
+/** @brief Retargets the C library printf function to the USART.
+ *  @param None
+ *  @retval None
+ */
+PUTCHAR_PROTOTYPE {
+  /* Place your implementation of fputc here */
+  /* e.g. write a character to the USART2 and Loop
+     until the end of transmission */
+  if(ch == '\n')
+    HAL_UART_Transmit(&huart2, (uint8_t*) "\r", 1, 0xFFFF);
+    HAL_UART_Transmit(&huart2, (uint8_t*) &ch, 1, 0xFFFF);
+}
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -68,9 +101,25 @@ uint16_t mtSpeed_L = 0, mtSpeed_R = 0;
 volatile uint16_t adcValue[2] = {0};
 uint16_t adcX, adcY;
 
-uint8_t ctrMode = 2;
+uint8_t ctrMode = 0;
+uint8_t buttonFlag = 0;
 
-uint8_t btMode = 0, btSpeed = 0;
+uint8_t btMode = 'S', btSpeed = 0;
+
+uint16_t IC_Value_1[2] = {0};
+uint16_t IC_Value_2[2] = {0};
+uint16_t IC_Value_3[2] = {0};
+
+uint16_t echoTime_1 = 0, echoTime_2 = 0, echoTime_3 = 0;
+uint8_t captureFlag_1 = 0, captureFlag_2 = 0, captureFlag_3 = 0;
+uint8_t distance_1 = 0, distance_2 = 0, distance_3 = 0;
+
+uint32_t tickCur_1 = 0, tickCur_2 = 0, tickCur_3 = 0;
+uint32_t tickLast_1 = 0, tickLast_2 = 0, tickLast_3 = 0;
+uint32_t tickBase = 5;
+
+uint8_t tickIndex_1 = 0, tickIndex_2 = 0, tickIndex_3 = 0;
+
 /* USER CODE END Variables */
 /* Definitions for MotorCTR */
 osThreadId_t MotorCTRHandle;
@@ -100,6 +149,20 @@ const osThreadAttr_t ModeCTR_attributes = {
   .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityLow,
 };
+/* Definitions for UltrasonicCTR */
+osThreadId_t UltrasonicCTRHandle;
+const osThreadAttr_t UltrasonicCTR_attributes = {
+  .name = "UltrasonicCTR",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityLow,
+};
+/* Definitions for AutoCTR */
+osThreadId_t AutoCTRHandle;
+const osThreadAttr_t AutoCTR_attributes = {
+  .name = "AutoCTR",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityLow,
+};
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
@@ -117,62 +180,113 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 		}
 		HAL_UART_Receive_DMA(&huart1, &rxData_1, 1);
 	}
+}
 
-	if (huart->Instance == USART2) {
-		if (rxData_2 == 'w') {
-			mcMode = 1;
-			mtSpeed_R = 500;
-			mtSpeed_L = 500;
+void HCSR04_TRIG1(void) {
+	HAL_GPIO_WritePin(TRIG1_PORT, TRIG1_PIN, GPIO_PIN_SET);
+	delay_us(10);
+	HAL_GPIO_WritePin(TRIG1_PORT, TRIG1_PIN, GPIO_PIN_RESET);
+
+	__HAL_TIM_ENABLE_IT(&htim2, TIM_IT_CC1);
+}
+
+void HCSR04_TRIG2(void) {
+	HAL_GPIO_WritePin(TRIG2_PORT, TRIG2_PIN, GPIO_PIN_SET);
+	delay_us(10);
+	HAL_GPIO_WritePin(TRIG2_PORT, TRIG2_PIN, GPIO_PIN_RESET);
+
+	__HAL_TIM_ENABLE_IT(&htim2, TIM_IT_CC2);
+}
+
+void HCSR04_TRIG3(void) {
+	HAL_GPIO_WritePin(TRIG3_PORT, TRIG3_PIN, GPIO_PIN_SET);
+	delay_us(10);
+	HAL_GPIO_WritePin(TRIG3_PORT, TRIG3_PIN, GPIO_PIN_RESET);
+
+	__HAL_TIM_ENABLE_IT(&htim2, TIM_IT_CC3);
+}
+
+void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim) {
+	if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1) {
+		if (captureFlag_1 == 0) {					// Capture 안했다면
+			IC_Value_1[0] = HAL_TIM_ReadCapturedValue(&htim2, TIM_CHANNEL_1);
+			captureFlag_1 = 1;					// Capture 했음
+			// Capture 극성을 Rising에서 Falling으로 변경
+			__HAL_TIM_SET_CAPTUREPOLARITY(htim, TIM_CHANNEL_1, TIM_INPUTCHANNELPOLARITY_FALLING);
 		}
-		else if (rxData_2 == 'x') {
-			mcMode = 2;
-			mtSpeed_R = 500;
-			mtSpeed_L = 500;
-		}
-		else if (rxData_2 == 'a') {
-			mcMode = 3;
-			mtSpeed_R = 500;
-			mtSpeed_L = 500;
-		}
-		else if (rxData_2 == 'd') {
-			mcMode = 4;
-			mtSpeed_R = 500;
-			mtSpeed_L = 500;
-		}
-		else if (rxData_2 == 's') {
-			mcMode = 0;
-			mtSpeed_R = 0;
-			mtSpeed_L = 0;
-		}
-		else if (rxData_2 == 'r') {
-			mtSpeed_R += 50;
-			if (mtSpeed_R >= 950) {
-				mtSpeed_R = 950;
+		else if (captureFlag_1 == 1) {			// Capture 했다면
+			IC_Value_1[1] = HAL_TIM_ReadCapturedValue(&htim2, TIM_CHANNEL_1);
+			__HAL_TIM_SET_COUNTER(&htim2, 0);
+
+			if (IC_Value_1[1] > IC_Value_1[0]) {		// 같은 주기인 경우
+				echoTime_1 =  IC_Value_1[1] - IC_Value_1[0];
 			}
-		}
-		else if (rxData_2 == 'f') {
-			mtSpeed_R -= 50;
-			if (mtSpeed_R < 200) {
-				mtSpeed_R = 0;
+			else if (IC_Value_1[0] > IC_Value_1[1]) {	// 주기가 바뀐 경우
+				echoTime_1 = (0xffff - IC_Value_1[0]) + IC_Value_1[1];
 			}
+
+			distance_1 = echoTime_1 / 58;
+			captureFlag_1 = 0;
+			__HAL_TIM_SET_CAPTUREPOLARITY(htim, TIM_CHANNEL_1, TIM_INPUTCHANNELPOLARITY_RISING);
+			__HAL_TIM_DISABLE_IT(&htim2, TIM_IT_CC1);		// 한번 끝나면 Disable
 		}
-		else if (rxData_2 == 't') {
-			mtSpeed_L += 50;
-			if (mtSpeed_L >= 950) {
-				mtSpeed_L = 950;
-			}
-		}
-		else if (rxData_2 == 'g') {
-			mtSpeed_L -= 50;
-			if (mtSpeed_L < 200) {
-				mtSpeed_L = 0;
-			}
-		}
-		HAL_UART_Receive_DMA(&huart2, &rxData_2, 1);
 	}
 
+	else if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_2) {
+		if (captureFlag_2 == 0) {					// Capture 안했다면
+			IC_Value_2[0] = HAL_TIM_ReadCapturedValue(&htim2, TIM_CHANNEL_2);
+			captureFlag_2 = 1;					// Capture 했음
+			// Capture 극성을 Rising에서 Falling으로 변경
+			__HAL_TIM_SET_CAPTUREPOLARITY(htim, TIM_CHANNEL_2, TIM_INPUTCHANNELPOLARITY_FALLING);
+		}
+		else if (captureFlag_2 == 1) {			// Capture 했다면
+			IC_Value_2[1] = HAL_TIM_ReadCapturedValue(&htim2, TIM_CHANNEL_2);
+			__HAL_TIM_SET_COUNTER(&htim2, 0);
 
+			if (IC_Value_2[1] > IC_Value_2[0]) {		// 같은 주기인 경우
+				echoTime_2 =  IC_Value_2[1] - IC_Value_2[0];
+			}
+			else if (IC_Value_2[0] > IC_Value_2[1]) {	// 주기가 바뀐 경우
+				echoTime_2 = (0xffff - IC_Value_2[0]) + IC_Value_2[1];
+			}
 
+			distance_2 = echoTime_2 / 58;
+			captureFlag_2 = 0;
+			__HAL_TIM_SET_CAPTUREPOLARITY(htim, TIM_CHANNEL_2, TIM_INPUTCHANNELPOLARITY_RISING);
+			__HAL_TIM_DISABLE_IT(&htim2, TIM_IT_CC2);		// 한번 끝나면 Disable
+		}
+	}
+
+	else if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_3) {
+		if (captureFlag_3 == 0) {					// Capture 안했다면
+			IC_Value_3[0] = HAL_TIM_ReadCapturedValue(&htim2, TIM_CHANNEL_3);
+			captureFlag_3 = 1;					// Capture 했음
+			// Capture 극성을 Rising에서 Falling으로 변경
+			__HAL_TIM_SET_CAPTUREPOLARITY(htim, TIM_CHANNEL_3, TIM_INPUTCHANNELPOLARITY_FALLING);
+		}
+		else if (captureFlag_3 == 1) {			// Capture 했다면
+			IC_Value_3[1] = HAL_TIM_ReadCapturedValue(&htim2, TIM_CHANNEL_3);
+			__HAL_TIM_SET_COUNTER(&htim2, 0);
+
+			if (IC_Value_3[1] > IC_Value_3[0]) {		// 같은 주기인 경우
+				echoTime_3 =  IC_Value_3[1] - IC_Value_3[0];
+			}
+			else if (IC_Value_3[0] > IC_Value_3[1]) {	// 주기가 바뀐 경우
+				echoTime_3 = (0xffff - IC_Value_3[0]) + IC_Value_3[1];
+			}
+
+			distance_3 = echoTime_3 / 58;
+			captureFlag_3 = 0;
+			__HAL_TIM_SET_CAPTUREPOLARITY(htim, TIM_CHANNEL_3, TIM_INPUTCHANNELPOLARITY_RISING);
+			__HAL_TIM_DISABLE_IT(&htim2, TIM_IT_CC3);		// 한번 끝나면 Disable
+		}
+	}
+}
+
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
+	if (GPIO_Pin == GPIO_PIN_2) {
+		buttonFlag = 1;
+	}
 }
 /* USER CODE END FunctionPrototypes */
 
@@ -180,6 +294,8 @@ void MotorCTRTask(void *argument);
 void JoystickCTRTask(void *argument);
 void BluetoothCTRTask(void *argument);
 void ModeCTRTask(void *argument);
+void UltrasonicCTRTask(void *argument);
+void AutoCTRTask(void *argument);
 
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
@@ -192,8 +308,12 @@ void MX_FREERTOS_Init(void) {
   /* USER CODE BEGIN Init */
 HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_1);
 HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_2);
+
+HAL_TIM_Base_Start(&htim11);
+
 HAL_UART_Receive_DMA(&huart1, &rxData_1, 1);
 HAL_UART_Receive_DMA(&huart2, &rxData_2, 1);
+
   /* USER CODE END Init */
 
   /* USER CODE BEGIN RTOS_MUTEX */
@@ -225,6 +345,12 @@ HAL_UART_Receive_DMA(&huart2, &rxData_2, 1);
   /* creation of ModeCTR */
   ModeCTRHandle = osThreadNew(ModeCTRTask, NULL, &ModeCTR_attributes);
 
+  /* creation of UltrasonicCTR */
+  UltrasonicCTRHandle = osThreadNew(UltrasonicCTRTask, NULL, &UltrasonicCTR_attributes);
+
+  /* creation of AutoCTR */
+  AutoCTRHandle = osThreadNew(AutoCTRTask, NULL, &AutoCTR_attributes);
+
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
   /* USER CODE END RTOS_THREADS */
@@ -247,6 +373,13 @@ void MotorCTRTask(void *argument)
   /* USER CODE BEGIN MotorCTRTask */
   /* Infinite loop */
 	for(;;) {
+		tickCur_1 = xTaskGetTickCount();
+
+		if ((tickCur_1 - tickLast_1) > 100) {
+			tickIndex_1 = !tickIndex_1;
+			tickLast_1 = tickCur_1;
+		}
+
 		switch (mcMode) {
 		case 0:
 			mtMode_R1 = 0;
@@ -282,6 +415,41 @@ void MotorCTRTask(void *argument)
 			mtMode_L1 = 1;
 			mtMode_L2 = 0;
 			break;
+
+		case 5:
+			mtMode_R1 = 1;
+			mtMode_R2 = 0;
+			mtMode_L1 = 1;
+			mtMode_L2 = 0;
+			break;
+
+		case 6:
+			mtMode_R1 = 1;
+			mtMode_R2 = 0;
+			mtMode_L1 = 1;
+			mtMode_L2 = 0;
+			break;
+
+		case 7:
+			mtMode_R1 = 0;
+			mtMode_R2 = 1;
+			mtMode_L1 = 0;
+			mtMode_L2 = 1;
+			break;
+
+		case 8:
+			mtMode_R1 = 0;
+			mtMode_R2 = 1;
+			mtMode_L1 = 0;
+			mtMode_L2 = 1;
+			break;
+
+		case 9:
+			mtMode_R1 = 1;
+			mtMode_R2 = 1;
+			mtMode_L1 = 1;
+			mtMode_L2 = 1;
+			break;
 		}
 
 		HAL_GPIO_WritePin(M_IN2_PORT, M_IN2_PIN, mtMode_R1);
@@ -307,172 +475,12 @@ void MotorCTRTask(void *argument)
 void JoystickCTRTask(void *argument)
 {
   /* USER CODE BEGIN JoystickCTRTask */
-	HAL_ADC_Start_DMA(&hadc1, adcValue, 2);
+//	HAL_ADC_Start_DMA(&hadc1, adcValue, 2);
   /* Infinite loop */
 	for(;;) {
-		if (ctrMode == 1) {
-			adcX = adcValue[0] / 100;
-			adcY = (adcValue[1] + 50) / 100;
+		if (ctrMode == 2) {
 
-			if (adcX >= 19 && adcX <= 21) {
-				if (adcY >= 19 && adcY <= 21 ) {
-					mcMode = 0;
-					mtSpeed_R = 0;
-					mtSpeed_L = 0;
-				}
-				else if (adcY < 19) {
-					mcMode = 1;
-					mtSpeed_R = (19 - adcY) * 50;
-					mtSpeed_L = (19 - adcY) * 50;
-				}
-				else if (adcY > 21) {
-					mcMode = 2;
-					mtSpeed_R = (adcY - 21) * 50;
-					mtSpeed_L = (adcY - 21) * 50;
-				}
-			}
-
-			else if (adcX < 19) {
-				if (adcY >= 19 && adcY <= 21 ) {
-					mcMode = 3;
-					mtSpeed_R = (19 - adcX) * 50;
-					mtSpeed_L = 0;
-				}
-				else if (adcY < 19) {
-					mcMode = 1;
-					mtSpeed_R = (19 - adcY) * 50;
-					if (adcX >= 17) {
-						mtSpeed_L = (19 - adcY) * 45;
-					}
-					else if (adcX >= 15) {
-						mtSpeed_L = (19 - adcY) * 40;
-					}
-					else if (adcX >= 13) {
-						mtSpeed_L = (19 - adcY) * 35;
-					}
-					else if (adcX >= 11) {
-						mtSpeed_L = (19 - adcY) * 30;
-					}
-					else if (adcX >= 9) {
-						mtSpeed_L = (19 - adcY) * 25;
-					}
-					else if (adcX >= 7) {
-						mtSpeed_L = (19 - adcY) * 20;
-					}
-					else if (adcX >= 5) {
-						mtSpeed_L = (19 - adcY) * 15;
-					}
-					else if (adcX >= 3) {
-						mtSpeed_L = (19 - adcY) * 10;
-					}
-					else if (adcX < 3) {
-						mtSpeed_L = 0;
-					}
-				}
-				else if (adcY > 21) {
-					mcMode = 2;
-					mtSpeed_R = (adcY - 21) * 50;
-					if (adcX >= 17) {
-						mtSpeed_L = (adcY - 21) * 45;
-					}
-					else if (adcX >= 15) {
-						mtSpeed_L = (adcY - 21) * 40;
-					}
-					else if (adcX >= 13) {
-						mtSpeed_L = (adcY - 21) * 35;
-					}
-					else if (adcX >= 11) {
-						mtSpeed_L = (adcY - 21) * 30;
-					}
-					else if (adcX >= 9) {
-						mtSpeed_L = (adcY - 21) * 25;
-					}
-					else if (adcX >= 7) {
-						mtSpeed_L = (adcY - 21) * 20;
-					}
-					else if (adcX >= 5) {
-						mtSpeed_L = (adcY - 21) * 15;
-					}
-					else if (adcX >= 3) {
-						mtSpeed_L = (adcY - 21) * 10;
-					}
-					else if (adcX < 3) {
-						mtSpeed_L = 0;
-					}
-				}
-			}
-
-			else if (adcX > 21) {
-				if (adcY >= 19 && adcY <= 21 ) {
-					mcMode = 4;
-					mtSpeed_R = (adcX - 21) * 50;
-					mtSpeed_L = 0;
-				}
-				else if (adcY < 19) {
-					mcMode = 1;
-					mtSpeed_L = (19 - adcY) * 50;
-					if (adcX <= 23) {
-						mtSpeed_R = (19 - adcY) * 45;
-					}
-					else if (adcX <= 25) {
-						mtSpeed_R = (19 - adcY) * 40;
-					}
-					else if (adcX <= 27) {
-						mtSpeed_R = (19 - adcY) * 35;
-					}
-					else if (adcX <= 29) {
-						mtSpeed_R = (19 - adcY) * 30;
-					}
-					else if (adcX <= 31) {
-						mtSpeed_R = (19 - adcY) * 25;
-					}
-					else if (adcX <= 33) {
-						mtSpeed_R = (19 - adcY) * 20;
-					}
-					else if (adcX <= 35) {
-						mtSpeed_R = (19 - adcY) * 15;
-					}
-					else if (adcX <= 37) {
-						mtSpeed_R = (19 - adcY) * 10;
-					}
-					else if (adcX > 37) {
-						mtSpeed_R = 0;
-					}
-				}
-				else if (adcY > 21) {
-					mcMode = 2;
-					mtSpeed_L = (adcY - 21) * 50;
-					if (adcX <= 23) {
-						mtSpeed_R = (adcY - 21) * 45;
-					}
-					else if (adcX <= 25) {
-						mtSpeed_R = (adcY - 21) * 40;
-					}
-					else if (adcX <= 27) {
-						mtSpeed_R = (adcY - 21) * 35;
-					}
-					else if (adcX <= 29) {
-						mtSpeed_R = (adcY - 21) * 30;
-					}
-					else if (adcX <= 31) {
-						mtSpeed_R = (adcY - 21) * 25;
-					}
-					else if (adcX <= 33) {
-						mtSpeed_R = (adcY - 21) * 20;
-					}
-					else if (adcX <= 35) {
-						mtSpeed_R = (adcY - 21) * 15;
-					}
-					else if (adcX <= 37) {
-						mtSpeed_R = (adcY - 21) * 10;
-					}
-					else if (adcX > 37) {
-						mtSpeed_R = 0;
-					}
-				}
-			}
 		}
-
 		osDelay(10);
 	}
   /* USER CODE END JoystickCTRTask */
@@ -491,7 +499,14 @@ void BluetoothCTRTask(void *argument)
 
   /* Infinite loop */
 	for(;;) {
-		if (ctrMode == 2) {
+		tickCur_2 = xTaskGetTickCount();
+
+		if ((tickCur_2 - tickLast_2) > 100) {
+			tickIndex_2 = !tickIndex_2;
+			tickLast_2 = tickCur_2;
+		}
+
+		if (ctrMode == 1) {
 			if (btMode == 'S') {
 				mcMode = 0;
 				mtSpeed_R = 0;
@@ -518,23 +533,23 @@ void BluetoothCTRTask(void *argument)
 				mtSpeed_L = BT_B_SPEED + (btSpeed * BT_M_SPEED);
 			}
 			else if (btMode == 'G') {
-				mcMode = 1;
+				mcMode = 5;
 				mtSpeed_R = BT_B_SPEED + (btSpeed * BT_M_SPEED);
-				mtSpeed_L = (BT_B_SPEED + (btSpeed * BT_M_SPEED)) * 0.5;
+				mtSpeed_L = (BT_B_SPEED + (btSpeed * BT_M_SPEED)) * SPEED_RATIO;
 			}
 			else if (btMode == 'H') {
-				mcMode = 1;
-				mtSpeed_R = (BT_B_SPEED + (btSpeed * BT_M_SPEED)) * 0.5;
+				mcMode = 6;
+				mtSpeed_R = (BT_B_SPEED + (btSpeed * BT_M_SPEED)) * SPEED_RATIO;
 				mtSpeed_L = BT_B_SPEED + (btSpeed * BT_M_SPEED);
 			}
 			else if (btMode == 'I') {
-				mcMode = 2;
+				mcMode = 7;
 				mtSpeed_R = BT_B_SPEED + (btSpeed * BT_M_SPEED);
-				mtSpeed_L = (BT_B_SPEED + (btSpeed * BT_M_SPEED)) * 0.5;
+				mtSpeed_L = (BT_B_SPEED + (btSpeed * BT_M_SPEED)) * SPEED_RATIO;
 			}
 			else if (btMode == 'J') {
-				mcMode = 1;
-				mtSpeed_R = (BT_B_SPEED + (btSpeed * BT_M_SPEED)) * 0.5;
+				mcMode = 8;
+				mtSpeed_R = (BT_B_SPEED + (btSpeed * BT_M_SPEED)) * SPEED_RATIO;
 				mtSpeed_L = BT_B_SPEED + (btSpeed * BT_M_SPEED);
 			}
 		}
@@ -554,13 +569,78 @@ void BluetoothCTRTask(void *argument)
 void ModeCTRTask(void *argument)
 {
   /* USER CODE BEGIN ModeCTRTask */
-	ctrMode = 2;
+
   /* Infinite loop */
-  for(;;)
-  {
-    osDelay(1);
-  }
+	for(;;) {
+		if (buttonGetPressed(0)) {
+			buttonFlag = 1;
+		}
+
+		if (buttonFlag == 1) {
+			ctrMode++;
+			buttonFlag = 0;
+			if (ctrMode >= 4) {
+				ctrMode = 0;
+			}
+		}
+
+		osDelay(10);
+	}
   /* USER CODE END ModeCTRTask */
+}
+
+/* USER CODE BEGIN Header_UltrasonicCTRTask */
+/**
+* @brief Function implementing the UltrasonicCTR thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_UltrasonicCTRTask */
+void UltrasonicCTRTask(void *argument)
+{
+  /* USER CODE BEGIN UltrasonicCTRTask */
+	HAL_TIM_IC_Start_IT(&htim2, TIM_CHANNEL_1);
+	HAL_TIM_IC_Start_IT(&htim2, TIM_CHANNEL_2);
+	HAL_TIM_IC_Start_IT(&htim2, TIM_CHANNEL_3);
+  /* Infinite loop */
+	for(;;) {
+		HCSR04_TRIG1();
+		osDelay(100);
+
+		HCSR04_TRIG2();
+		osDelay(100);
+
+		HCSR04_TRIG3();
+		osDelay(100);
+	}
+  /* USER CODE END UltrasonicCTRTask */
+}
+
+/* USER CODE BEGIN Header_AutoCTRTask */
+/**
+* @brief Function implementing the AutoCTR thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_AutoCTRTask */
+void AutoCTRTask(void *argument)
+{
+  /* USER CODE BEGIN AutoCTRTask */
+  /* Infinite loop */
+	for(;;) {
+		if  (ctrMode == 3) {
+			if (distance_1 <= 15) {
+
+			}
+
+			else if (distance_1 <= 20) {
+
+			}
+		}
+
+		osDelay(10);
+	}
+  /* USER CODE END AutoCTRTask */
 }
 
 /* Private application code --------------------------------------------------*/
