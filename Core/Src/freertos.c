@@ -51,18 +51,26 @@
 #define M_IN4_PORT				GPIOA
 #define M_IN4_PIN					GPIO_PIN_7
 
-#define BT_B_SPEED				350
-#define BT_M_SPEED				70
-#define SPEED_RATIO				0.2
-
-#define AUTO_B_SPEED				500
-
 #define TRIG1_PORT				GPIOB
 #define TRIG1_PIN					GPIO_PIN_15
 #define TRIG2_PORT				GPIOB
 #define TRIG2_PIN					GPIO_PIN_14
 #define TRIG3_PORT				GPIOB
 #define TRIG3_PIN					GPIO_PIN_13
+
+#define SPEED_BASE				400
+#define SPEED_RATIO				0.2
+
+#define SPEED_M_BT				65
+#define SPEED_AUTO_1				60
+#define SPEED_AUTO_2				60
+#define SPEED_AUTO_3				60
+
+#define DIST_STD_0				7
+#define DIST_STD_1				15
+#define DIST_STD_2				25
+#define DIST_STD_3				35
+#define DIST_STD_4				45
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -96,7 +104,7 @@ uint8_t rxData_1 = 0, rxData_2 = 0;
 uint8_t mcMode;
 uint8_t mtMode_L1 = 0, mtMode_L2 = 0;
 uint8_t mtMode_R1 = 0, mtMode_R2 = 0;
-uint16_t mtSpeed_L = 0, mtSpeed_R = 0;
+uint16_t mtSpeed_R = 0, mtSpeed_L = 0;
 
 volatile uint16_t adcValue[2] = {0};
 uint16_t adcX, adcY;
@@ -112,7 +120,7 @@ uint16_t IC_Value_3[2] = {0};
 
 uint16_t echoTime_1 = 0, echoTime_2 = 0, echoTime_3 = 0;
 uint8_t captureFlag_1 = 0, captureFlag_2 = 0, captureFlag_3 = 0;
-uint8_t distance_1 = 0, distance_2 = 0, distance_3 = 0;
+uint8_t distCenter = 0, distLeft = 0, distRight = 0;
 
 uint32_t tickCur_1 = 0, tickCur_2 = 0, tickCur_3 = 0;
 uint32_t tickLast_1 = 0, tickLast_2 = 0, tickLast_3 = 0;
@@ -168,7 +176,10 @@ const osThreadAttr_t AutoCTR_attributes = {
 /* USER CODE BEGIN FunctionPrototypes */
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 	if (huart->Instance == USART1) {
-		if (rxData_1 > 200) {
+		if (rxData_1 == 'Y') {
+			buttonFlag = 1;
+		}
+		else if (rxData_1 > 200) {
 			btSpeed = 0;
 			btMode = 0;
 		}
@@ -225,7 +236,7 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim) {
 				echoTime_1 = (0xffff - IC_Value_1[0]) + IC_Value_1[1];
 			}
 
-			distance_1 = echoTime_1 / 58;
+			distCenter = echoTime_1 / 58;
 			captureFlag_1 = 0;
 			__HAL_TIM_SET_CAPTUREPOLARITY(htim, TIM_CHANNEL_1, TIM_INPUTCHANNELPOLARITY_RISING);
 			__HAL_TIM_DISABLE_IT(&htim2, TIM_IT_CC1);		// 한번 끝나면 Disable
@@ -250,7 +261,7 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim) {
 				echoTime_2 = (0xffff - IC_Value_2[0]) + IC_Value_2[1];
 			}
 
-			distance_2 = echoTime_2 / 58;
+			distLeft = echoTime_2 / 58;
 			captureFlag_2 = 0;
 			__HAL_TIM_SET_CAPTUREPOLARITY(htim, TIM_CHANNEL_2, TIM_INPUTCHANNELPOLARITY_RISING);
 			__HAL_TIM_DISABLE_IT(&htim2, TIM_IT_CC2);		// 한번 끝나면 Disable
@@ -275,7 +286,7 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim) {
 				echoTime_3 = (0xffff - IC_Value_3[0]) + IC_Value_3[1];
 			}
 
-			distance_3 = echoTime_3 / 58;
+			distRight = echoTime_3 / 58;
 			captureFlag_3 = 0;
 			__HAL_TIM_SET_CAPTUREPOLARITY(htim, TIM_CHANNEL_3, TIM_INPUTCHANNELPOLARITY_RISING);
 			__HAL_TIM_DISABLE_IT(&htim2, TIM_IT_CC3);		// 한번 끝나면 Disable
@@ -514,43 +525,43 @@ void BluetoothCTRTask(void *argument)
 			}
 			else if (btMode == 'F') {
 				mcMode = 1;
-				mtSpeed_R = BT_B_SPEED + (btSpeed * BT_M_SPEED);
-				mtSpeed_L = BT_B_SPEED + (btSpeed * BT_M_SPEED);
+				mtSpeed_R = SPEED_BASE + (btSpeed * SPEED_M_BT);
+				mtSpeed_L = SPEED_BASE + (btSpeed * SPEED_M_BT);
 			}
 			else if (btMode == 'B') {
 				mcMode = 2;
-				mtSpeed_R = BT_B_SPEED + (btSpeed * BT_M_SPEED);
-				mtSpeed_L = BT_B_SPEED + (btSpeed * BT_M_SPEED);
+				mtSpeed_R = SPEED_BASE + (btSpeed * SPEED_M_BT);
+				mtSpeed_L = SPEED_BASE + (btSpeed * SPEED_M_BT);
 			}
 			else if (btMode == 'L') {
 				mcMode = 3;
-				mtSpeed_R = BT_B_SPEED + (btSpeed * BT_M_SPEED);
+				mtSpeed_R = SPEED_BASE + (btSpeed * SPEED_M_BT);
 				mtSpeed_L = 0;
 			}
 			else if (btMode == 'R') {
 				mcMode = 4;
 				mtSpeed_R = 0;
-				mtSpeed_L = BT_B_SPEED + (btSpeed * BT_M_SPEED);
+				mtSpeed_L = SPEED_BASE + (btSpeed * SPEED_M_BT);
 			}
 			else if (btMode == 'G') {
 				mcMode = 5;
-				mtSpeed_R = BT_B_SPEED + (btSpeed * BT_M_SPEED);
-				mtSpeed_L = (BT_B_SPEED + (btSpeed * BT_M_SPEED)) * SPEED_RATIO;
+				mtSpeed_R = SPEED_BASE + (btSpeed * SPEED_M_BT);
+				mtSpeed_L = (SPEED_BASE + (btSpeed * SPEED_M_BT)) * SPEED_RATIO;
 			}
 			else if (btMode == 'H') {
 				mcMode = 6;
-				mtSpeed_R = (BT_B_SPEED + (btSpeed * BT_M_SPEED)) * SPEED_RATIO;
-				mtSpeed_L = BT_B_SPEED + (btSpeed * BT_M_SPEED);
+				mtSpeed_R = (SPEED_BASE + (btSpeed * SPEED_M_BT)) * SPEED_RATIO;
+				mtSpeed_L = SPEED_BASE + (btSpeed * SPEED_M_BT);
 			}
 			else if (btMode == 'I') {
 				mcMode = 7;
-				mtSpeed_R = BT_B_SPEED + (btSpeed * BT_M_SPEED);
-				mtSpeed_L = (BT_B_SPEED + (btSpeed * BT_M_SPEED)) * SPEED_RATIO;
+				mtSpeed_R = SPEED_BASE + (btSpeed * SPEED_M_BT);
+				mtSpeed_L = (SPEED_BASE + (btSpeed * SPEED_M_BT)) * SPEED_RATIO;
 			}
 			else if (btMode == 'J') {
 				mcMode = 8;
-				mtSpeed_R = (BT_B_SPEED + (btSpeed * BT_M_SPEED)) * SPEED_RATIO;
-				mtSpeed_L = BT_B_SPEED + (btSpeed * BT_M_SPEED);
+				mtSpeed_R = (SPEED_BASE + (btSpeed * SPEED_M_BT)) * SPEED_RATIO;
+				mtSpeed_L = SPEED_BASE + (btSpeed * SPEED_M_BT);
 			}
 		}
 
@@ -579,9 +590,16 @@ void ModeCTRTask(void *argument)
 		if (buttonFlag == 1) {
 			ctrMode++;
 			buttonFlag = 0;
+			rxData_1 = 'S';
 			if (ctrMode >= 4) {
 				ctrMode = 0;
 			}
+		}
+
+		if (ctrMode == 0) {
+			mcMode = 0;
+			mtSpeed_R = 0;
+			mtSpeed_L = 0;
 		}
 
 		osDelay(10);
@@ -605,13 +623,13 @@ void UltrasonicCTRTask(void *argument)
   /* Infinite loop */
 	for(;;) {
 		HCSR04_TRIG1();
-		osDelay(100);
+		osDelay(50);
 
 		HCSR04_TRIG2();
-		osDelay(100);
+		osDelay(50);
 
 		HCSR04_TRIG3();
-		osDelay(100);
+		osDelay(50);
 	}
   /* USER CODE END UltrasonicCTRTask */
 }
@@ -629,15 +647,856 @@ void AutoCTRTask(void *argument)
   /* Infinite loop */
 	for(;;) {
 		if  (ctrMode == 3) {
-			if (distance_1 <= 15) {
-
+			if (distCenter <= DIST_STD_0 || distLeft <= DIST_STD_0 || distRight <= DIST_STD_0) {
+				if (distLeft >= distRight) {
+					mcMode = 8;
+					mtSpeed_R = SPEED_BASE * SPEED_RATIO;
+					mtSpeed_L = SPEED_BASE;
+				}
+				else if (distLeft < distRight) {
+					mcMode = 7;
+					mtSpeed_R = SPEED_BASE;
+					mtSpeed_L = SPEED_BASE * SPEED_RATIO;
+				}
 			}
 
-			else if (distance_1 <= 20) {
+			// 정면 기준 거리 1 이내
+			else if (distCenter <= DIST_STD_1) {
+				if (distLeft <= DIST_STD_1) {
+					if (distRight <= DIST_STD_1) {
+						if (distLeft >= distRight) {
+							mcMode = 3;
+							mtSpeed_R = SPEED_BASE;
+							mtSpeed_L = 0;
+						}
+						else if (distLeft < distRight) {
+							mcMode = 4;
+							mtSpeed_R = 0;
+							mtSpeed_L = SPEED_BASE;
+						}
+					}
+					else if (distRight <= DIST_STD_2) {
+						mcMode = 4;
+						mtSpeed_R = 0;
+						mtSpeed_L = SPEED_BASE;
+					}
+					else if (distRight <= DIST_STD_3) {
+						mcMode = 4;
+						mtSpeed_R = 0;
+						mtSpeed_L = SPEED_BASE;
+					}
+					else if (distRight <= DIST_STD_4) {
+						mcMode = 4;
+						mtSpeed_R = 0;
+						mtSpeed_L = SPEED_BASE;
+					}
+					else if (distRight > DIST_STD_4) {
+						mcMode = 6;
+						mtSpeed_R = SPEED_BASE * SPEED_RATIO;
+						mtSpeed_L = SPEED_BASE;
+					}
+				}
+				else if (distLeft <= DIST_STD_2) {
+					if (distRight <= DIST_STD_1) {
+						mcMode = 3;
+						mtSpeed_R = SPEED_BASE;
+						mtSpeed_L = 0;
+					}
+					else if (distRight <= DIST_STD_2) {
+						if (distLeft >= distRight) {
+							mcMode = 3;
+							mtSpeed_R = SPEED_BASE;
+							mtSpeed_L = 0;
+						}
+						else if (distLeft < distRight) {
+							mcMode = 4;
+							mtSpeed_R = 0;
+							mtSpeed_L = SPEED_BASE;
+						}
+					}
+					else if (distRight <= DIST_STD_3) {
+						mcMode = 4;
+						mtSpeed_R = 0;
+						mtSpeed_L = SPEED_BASE;
+					}
+					else if (distRight <= DIST_STD_4) {
+						mcMode = 6;
+						mtSpeed_R = SPEED_BASE * SPEED_RATIO;
+						mtSpeed_L = SPEED_BASE;
+					}
+					else if (distRight > DIST_STD_4) {
+						mcMode = 6;
+						mtSpeed_R = SPEED_BASE * SPEED_RATIO;
+						mtSpeed_L = SPEED_BASE;
+					}
+				}
+				else if (distLeft <= DIST_STD_3) {
+					if (distRight <= DIST_STD_1) {
+						mcMode = 3;
+						mtSpeed_R = SPEED_BASE;
+						mtSpeed_L = 0;
+					}
+					else if (distRight <= DIST_STD_2) {
+						mcMode = 3;
+						mtSpeed_R = SPEED_BASE;
+						mtSpeed_L = 0;
+					}
+					else if (distRight <= DIST_STD_3) {
+						if (distLeft >= distRight) {
+							mcMode = 5;
+							mtSpeed_R = SPEED_BASE;
+							mtSpeed_L = SPEED_BASE * SPEED_RATIO;
+						}
+						else if (distLeft < distRight) {
+							mcMode = 6;
+							mtSpeed_R = SPEED_BASE * SPEED_RATIO;
+							mtSpeed_L = SPEED_BASE;
+						}
+					}
+					else if (distRight <= DIST_STD_4) {
+						mcMode = 6;
+						mtSpeed_R = (SPEED_BASE) * SPEED_RATIO;
+						mtSpeed_L = SPEED_BASE;
+					}
+					else if (distRight > DIST_STD_4) {
+						mcMode = 6;
+						mtSpeed_R = (SPEED_BASE + SPEED_AUTO_1) * SPEED_RATIO;
+						mtSpeed_L = SPEED_BASE + SPEED_AUTO_1;
+					}
+				}
+				else if (distLeft <= DIST_STD_4) {
+					if (distRight <= DIST_STD_1) {
+						mcMode = 3;
+						mtSpeed_R = SPEED_BASE;
+						mtSpeed_L = 0;
+					}
+					else if (distRight <= DIST_STD_2) {
+						mcMode = 5;
+						mtSpeed_R = SPEED_BASE;
+						mtSpeed_L = SPEED_BASE * SPEED_RATIO;
+					}
+					else if (distRight <= DIST_STD_3) {
+						mcMode = 5;
+						mtSpeed_R = SPEED_BASE;
+						mtSpeed_L = (SPEED_BASE) * SPEED_RATIO;
+					}
+					else if (distRight <= DIST_STD_4) {
+						if (distLeft >= distRight) {
+							mcMode = 5;
+							mtSpeed_R = SPEED_BASE + SPEED_AUTO_1;
+							mtSpeed_L = (SPEED_BASE + SPEED_AUTO_1) * SPEED_RATIO;
+						}
+						else if (distLeft < distRight) {
+							mcMode = 6;
+							mtSpeed_R = (SPEED_BASE + SPEED_AUTO_1) * SPEED_RATIO;
+							mtSpeed_L = SPEED_BASE + SPEED_AUTO_1;
+						}
+					}
+					else if (distRight > DIST_STD_4) {
+						mcMode = 6;
+						mtSpeed_R = (SPEED_BASE + SPEED_AUTO_1) * SPEED_RATIO;
+						mtSpeed_L = SPEED_BASE + SPEED_AUTO_1;
+					}
+				}
+				else if (distLeft > DIST_STD_4) {
+					if (distRight <= DIST_STD_1) {
+						mcMode = 5;
+						mtSpeed_R = SPEED_BASE;
+						mtSpeed_L = SPEED_BASE * SPEED_RATIO;
+					}
+					else if (distRight <= DIST_STD_2) {
+						mcMode = 5;
+						mtSpeed_R = SPEED_BASE;
+						mtSpeed_L = SPEED_BASE * SPEED_RATIO;
+					}
+					else if (distRight <= DIST_STD_3) {
+						mcMode = 5;
+						mtSpeed_R = SPEED_BASE;
+						mtSpeed_L = SPEED_BASE * SPEED_RATIO;
+					}
+					else if (distRight <= DIST_STD_4) {
+						mcMode = 5;
+						mtSpeed_R = SPEED_BASE + SPEED_AUTO_1;
+						mtSpeed_L = (SPEED_BASE + SPEED_AUTO_1) * SPEED_RATIO;
 
+					}
+					else if (distRight > DIST_STD_4) {
+						if (distLeft >= distRight) {
+							mcMode = 5;
+							mtSpeed_R = SPEED_BASE + SPEED_AUTO_1;
+							mtSpeed_L = (SPEED_BASE + SPEED_AUTO_1) * SPEED_RATIO;
+						}
+						else if (distLeft < distRight) {
+							mcMode = 6;
+							mtSpeed_R = (SPEED_BASE + SPEED_AUTO_1) * SPEED_RATIO;
+							mtSpeed_L = SPEED_BASE + SPEED_AUTO_1;
+						}
+					}
+				}
+			}
+
+			// 정면 기준 거리 2 이내
+			else if (distCenter <= DIST_STD_2) {
+				if (distLeft <= DIST_STD_1) {
+					if (distRight <= DIST_STD_1) {
+						if (distLeft >= distRight) {
+							mcMode = 3;
+							mtSpeed_R = SPEED_BASE;
+							mtSpeed_L = 0;
+						}
+						else if(distLeft < distRight) {
+							mcMode = 4;
+							mtSpeed_R = 0;
+							mtSpeed_L = SPEED_BASE;
+						}
+					}
+					else if (distRight <= DIST_STD_2) {
+						mcMode = 4;
+						mtSpeed_R = 0;
+						mtSpeed_L = SPEED_BASE;
+					}
+					else if (distRight <= DIST_STD_3) {
+						mcMode = 6;
+						mtSpeed_R = SPEED_BASE * SPEED_RATIO;
+						mtSpeed_L = SPEED_BASE;
+					}
+					else if (distRight <= DIST_STD_4) {
+						mcMode = 6;
+						mtSpeed_R = SPEED_BASE * SPEED_RATIO;
+						mtSpeed_L = SPEED_BASE;
+					}
+					else if (distRight > DIST_STD_4) {
+						mcMode = 6;
+						mtSpeed_R = SPEED_BASE * SPEED_RATIO;
+						mtSpeed_L = SPEED_BASE;
+					}
+				}
+				else if (distLeft <= DIST_STD_2) {
+					if (distRight <= DIST_STD_1) {
+						mcMode = 3;
+						mtSpeed_R = SPEED_BASE;
+						mtSpeed_L = 0;
+					}
+					else if (distRight <= DIST_STD_2) {
+						if (distLeft >= distRight) {
+							mcMode = 5;
+							mtSpeed_R = SPEED_BASE;
+							mtSpeed_L = SPEED_BASE * SPEED_RATIO;
+						}
+						else if (distLeft < distRight) {
+							mcMode = 6;
+							mtSpeed_R = SPEED_BASE * SPEED_RATIO;
+							mtSpeed_L = SPEED_BASE;
+						}
+					}
+					else if (distRight <= DIST_STD_3) {
+						mcMode = 6;
+						mtSpeed_R = SPEED_BASE * SPEED_RATIO;
+						mtSpeed_L = SPEED_BASE;
+					}
+					else if (distRight <= DIST_STD_4) {
+						mcMode = 6;
+						mtSpeed_R = (SPEED_BASE + SPEED_AUTO_1) * SPEED_RATIO;
+						mtSpeed_L = SPEED_BASE + SPEED_AUTO_1;
+					}
+					else if (distRight > DIST_STD_4) {
+						mcMode = 6;
+						mtSpeed_R = (SPEED_BASE + SPEED_AUTO_1) * SPEED_RATIO;
+						mtSpeed_L = SPEED_BASE + SPEED_AUTO_1;
+					}
+				}
+				else if (distLeft <= DIST_STD_3) {
+					if (distRight <= DIST_STD_1) {
+						mcMode = 5;
+						mtSpeed_R = SPEED_BASE;
+						mtSpeed_L = SPEED_BASE * SPEED_RATIO;
+					}
+					else if (distRight <= DIST_STD_2) {
+						mcMode = 5;
+						mtSpeed_R = SPEED_BASE;
+						mtSpeed_L = SPEED_BASE * SPEED_RATIO;
+					}
+					else if (distRight <= DIST_STD_3) {
+						if (distLeft >= distRight) {
+							mcMode = 5;
+							mtSpeed_R = SPEED_BASE + SPEED_AUTO_1;
+							mtSpeed_L = (SPEED_BASE + SPEED_AUTO_1) * SPEED_RATIO;
+						}
+						else if (distLeft < distRight) {
+							mcMode = 6;
+							mtSpeed_R = SPEED_BASE * SPEED_RATIO;
+							mtSpeed_L = SPEED_BASE;
+						}
+					}
+					else if (distRight <= DIST_STD_4) {
+						mcMode = 6;
+						mtSpeed_R = (SPEED_BASE + SPEED_AUTO_1) * SPEED_RATIO;
+						mtSpeed_L = SPEED_BASE + SPEED_AUTO_1;
+					}
+					else if (distRight > DIST_STD_4) {
+						mcMode = 6;
+						mtSpeed_R = (SPEED_BASE + SPEED_AUTO_2) * SPEED_RATIO;
+						mtSpeed_L = SPEED_BASE + SPEED_AUTO_2;
+					}
+				}
+				else if (distLeft <= DIST_STD_4) {
+					if (distRight <= DIST_STD_1) {
+						mcMode = 5;
+						mtSpeed_R = SPEED_BASE;
+						mtSpeed_L = SPEED_BASE * SPEED_RATIO;
+					}
+					else if (distRight <= DIST_STD_2) {
+						mcMode = 5;
+						mtSpeed_R = SPEED_BASE + SPEED_AUTO_1;
+						mtSpeed_L = (SPEED_BASE + SPEED_AUTO_1) * SPEED_RATIO;
+					}
+					else if (distRight <= DIST_STD_3) {
+						mcMode = 5;
+						mtSpeed_R = SPEED_BASE + SPEED_AUTO_1;
+						mtSpeed_L = (SPEED_BASE + SPEED_AUTO_1) * SPEED_RATIO;
+					}
+					else if (distRight <= DIST_STD_4) {
+						if (distLeft >= distRight) {
+							mcMode = 5;
+							mtSpeed_R = SPEED_BASE + SPEED_AUTO_2;
+							mtSpeed_L = (SPEED_BASE + SPEED_AUTO_2) * SPEED_RATIO;
+						}
+						else if (distLeft < distRight) {
+							mcMode = 6;
+							mtSpeed_R = (SPEED_BASE + SPEED_AUTO_2) * SPEED_RATIO;
+							mtSpeed_L = SPEED_BASE + SPEED_AUTO_2;
+						}
+					}
+					else if (distRight > DIST_STD_4) {
+						mcMode = 6;
+						mtSpeed_R = (SPEED_BASE + SPEED_AUTO_2) * SPEED_RATIO;
+						mtSpeed_L = SPEED_BASE + SPEED_AUTO_2;
+					}
+				}
+				else if (distLeft > DIST_STD_4) {
+					if (distRight <= DIST_STD_1) {
+						mcMode = 5;
+						mtSpeed_R = SPEED_BASE;
+						mtSpeed_L = SPEED_BASE * SPEED_RATIO;
+					}
+					else if (distRight <= DIST_STD_2) {
+						mcMode = 5;
+						mtSpeed_R = SPEED_BASE + SPEED_AUTO_1;
+						mtSpeed_L = (SPEED_BASE + SPEED_AUTO_1) * SPEED_RATIO;
+					}
+					else if (distRight <= DIST_STD_3) {
+						mcMode = 5;
+						mtSpeed_R = SPEED_BASE + SPEED_AUTO_2;
+						mtSpeed_L = (SPEED_BASE + SPEED_AUTO_2) * SPEED_RATIO;
+					}
+					else if (distRight <= DIST_STD_4) {
+						mcMode = 5;
+						mtSpeed_R = SPEED_BASE + SPEED_AUTO_2;
+						mtSpeed_L = (SPEED_BASE + SPEED_AUTO_2) * SPEED_RATIO;
+					}
+					else if (distRight > DIST_STD_4) {
+						if (distLeft >= distRight) {
+							mcMode = 5;
+							mtSpeed_R = SPEED_BASE + SPEED_AUTO_3;
+							mtSpeed_L = (SPEED_BASE + SPEED_AUTO_3) * SPEED_RATIO;
+						}
+						else if(distLeft < distRight) {
+							mcMode = 6;
+							mtSpeed_R = (SPEED_BASE + SPEED_AUTO_3) * SPEED_RATIO;
+							mtSpeed_L = SPEED_BASE + SPEED_AUTO_3;
+						}
+					}
+				}
+			}
+
+			// 정면 기준 거리 3 이내
+			else if (distCenter <= DIST_STD_3) {
+				if (distLeft <= DIST_STD_1) {
+					if (distRight <= DIST_STD_1) {
+						if (distLeft >= distRight) {
+							mcMode = 3;
+							mtSpeed_R = SPEED_BASE;
+							mtSpeed_L = 0;
+						}
+						else if (distLeft < distRight) {
+							mcMode = 4;
+							mtSpeed_R = 0;
+							mtSpeed_L = SPEED_BASE;
+						}
+					}
+					else if (distRight <= DIST_STD_2) {
+						mcMode = 6;
+						mtSpeed_R = SPEED_BASE * SPEED_RATIO;
+						mtSpeed_L = SPEED_BASE;
+					}
+					else if (distRight <= DIST_STD_3) {
+						mcMode = 6;
+						mtSpeed_R = (SPEED_BASE) * SPEED_RATIO;
+						mtSpeed_L = SPEED_BASE;
+
+					}
+					else if (distRight <= DIST_STD_4) {
+						mcMode = 6;
+						mtSpeed_R = (SPEED_BASE) * SPEED_RATIO;
+						mtSpeed_L = SPEED_BASE;
+					}
+					else if (distRight > DIST_STD_4) {
+						mcMode = 6;
+						mtSpeed_R = (SPEED_BASE) * SPEED_RATIO;
+						mtSpeed_L = SPEED_BASE;
+					}
+				}
+				else if (distLeft <= DIST_STD_2) {
+					if (distRight <= DIST_STD_1) {
+						mcMode = 5;
+						mtSpeed_R = SPEED_BASE;
+						mtSpeed_L = SPEED_BASE * SPEED_RATIO;
+					}
+					else if (distRight <= DIST_STD_2) {
+						if (distLeft >= distRight) {
+							mcMode = 5;
+							mtSpeed_R = SPEED_BASE;
+							mtSpeed_L = SPEED_BASE * SPEED_RATIO;
+						}
+						else if (distLeft < distRight) {
+							mcMode = 6;
+							mtSpeed_R = SPEED_BASE * SPEED_RATIO;
+							mtSpeed_L = SPEED_BASE;
+						}
+					}
+					else if (distRight <= DIST_STD_3) {
+						mcMode = 6;
+						mtSpeed_R = (SPEED_BASE) * SPEED_RATIO;
+						mtSpeed_L = SPEED_BASE;
+					}
+					else if (distRight <= DIST_STD_4) {
+						mcMode = 6;
+						mtSpeed_R = (SPEED_BASE + SPEED_AUTO_1) * SPEED_RATIO;
+						mtSpeed_L = SPEED_BASE + SPEED_AUTO_1;
+					}
+					else if (distRight > DIST_STD_4) {
+						mcMode = 6;
+						mtSpeed_R = (SPEED_BASE + SPEED_AUTO_1) * SPEED_RATIO;
+						mtSpeed_L = SPEED_BASE + SPEED_AUTO_1;
+					}
+				}
+				else if (distLeft <= DIST_STD_3) {
+					if (distRight <= DIST_STD_1) {
+						mcMode = 5;
+						mtSpeed_R = SPEED_BASE;
+						mtSpeed_L = SPEED_BASE * SPEED_RATIO;
+					}
+					else if (distRight <= DIST_STD_2) {
+						mcMode = 5;
+						mtSpeed_R = SPEED_BASE;
+						mtSpeed_L = SPEED_BASE * SPEED_RATIO;
+					}
+					else if (distRight <= DIST_STD_3) {
+						if (distLeft >= distRight) {
+							mcMode = 5;
+							mtSpeed_R = SPEED_BASE + SPEED_AUTO_1;
+							mtSpeed_L = (SPEED_BASE + SPEED_AUTO_1) * SPEED_RATIO;
+						}
+						else if (distLeft < distRight) {
+							mcMode = 6;
+							mtSpeed_R = (SPEED_BASE + SPEED_AUTO_1) * SPEED_RATIO;
+							mtSpeed_L = SPEED_BASE + SPEED_AUTO_1;
+						}
+					}
+					else if (distRight <= DIST_STD_4) {
+						mcMode = 6;
+						mtSpeed_R = (SPEED_BASE + SPEED_AUTO_1) * SPEED_RATIO;
+						mtSpeed_L = SPEED_BASE + SPEED_AUTO_1;
+					}
+					else if (distRight > DIST_STD_4) {
+						mcMode = 6;
+						mtSpeed_R = (SPEED_BASE + SPEED_AUTO_2) * SPEED_RATIO;
+						mtSpeed_L = SPEED_BASE + SPEED_AUTO_2;
+					}
+				}
+				else if (distLeft <= DIST_STD_4) {
+					if (distRight <= DIST_STD_1) {
+						mcMode = 5;
+						mtSpeed_R = SPEED_BASE;
+						mtSpeed_L = SPEED_BASE * SPEED_RATIO;
+					}
+					else if (distRight <= DIST_STD_2) {
+						mcMode = 5;
+						mtSpeed_R = SPEED_BASE + SPEED_AUTO_1;
+						mtSpeed_L = (SPEED_BASE + SPEED_AUTO_1) * SPEED_RATIO;
+					}
+					else if (distRight <= DIST_STD_3) {
+						mcMode = 5;
+						mtSpeed_R = SPEED_BASE + SPEED_AUTO_1;
+						mtSpeed_L = (SPEED_BASE + SPEED_AUTO_1) * SPEED_RATIO;
+					}
+					else if (distRight <= DIST_STD_4) {
+						if (distLeft >= distRight) {
+							mcMode = 5;
+							mtSpeed_R = SPEED_BASE + SPEED_AUTO_2;
+							mtSpeed_L = (SPEED_BASE + SPEED_AUTO_2) * SPEED_RATIO;
+						}
+						else if (distLeft < distRight) {
+							mcMode = 6;
+							mtSpeed_R = (SPEED_BASE + SPEED_AUTO_2) * SPEED_RATIO;
+							mtSpeed_L = SPEED_BASE + SPEED_AUTO_2;
+						}
+					}
+					else if (distRight > DIST_STD_4) {
+						mcMode = 6;
+						mtSpeed_R = (SPEED_BASE + SPEED_AUTO_2) * SPEED_RATIO;
+						mtSpeed_L = SPEED_BASE + SPEED_AUTO_2;
+					}
+				}
+				else if (distLeft > DIST_STD_4) {
+					if (distRight <= DIST_STD_1) {
+						mcMode = 5;
+						mtSpeed_R = SPEED_BASE;
+						mtSpeed_L = (SPEED_BASE) * SPEED_RATIO;
+					}
+					else if (distRight <= DIST_STD_2) {
+						mcMode = 5;
+						mtSpeed_R = SPEED_BASE + SPEED_AUTO_1;
+						mtSpeed_L = (SPEED_BASE + SPEED_AUTO_1) * SPEED_RATIO;
+					}
+					else if (distRight <= DIST_STD_3) {
+						mcMode = 5;
+						mtSpeed_R = SPEED_BASE + SPEED_AUTO_2;
+						mtSpeed_L = (SPEED_BASE + SPEED_AUTO_2) * SPEED_RATIO;
+					}
+					else if (distRight <= DIST_STD_4) {
+						mcMode = 5;
+						mtSpeed_R = SPEED_BASE + SPEED_AUTO_2;
+						mtSpeed_L = (SPEED_BASE + SPEED_AUTO_2) * SPEED_RATIO;
+					}
+					else if (distRight > DIST_STD_4) {
+						mcMode = 1;
+						mtSpeed_R = SPEED_BASE + SPEED_AUTO_3;
+						mtSpeed_L = SPEED_BASE + SPEED_AUTO_3;
+					}
+				}
+			}
+
+			// 정면 기준 거리 4 이내
+			else if (distCenter <= DIST_STD_4) {
+				if (distLeft <= DIST_STD_1) {
+					if (distRight <= DIST_STD_1) {
+						if (distLeft >= distRight) {
+							mcMode = 3;
+							mtSpeed_R = SPEED_BASE;
+							mtSpeed_L = 0;
+						}
+						else if (distLeft < distRight) {
+							mcMode = 4;
+							mtSpeed_R = 0;
+							mtSpeed_L = SPEED_BASE;
+						}
+					}
+					else if (distRight <= DIST_STD_2) {
+						mcMode = 6;
+						mtSpeed_R = SPEED_BASE * SPEED_RATIO;
+						mtSpeed_L = SPEED_BASE;
+					}
+					else if (distRight <= DIST_STD_3) {
+						mcMode = 6;
+						mtSpeed_R = SPEED_BASE * SPEED_RATIO;
+						mtSpeed_L = SPEED_BASE;
+					}
+					else if (distRight <= DIST_STD_4) {
+						mcMode = 6;
+						mtSpeed_R = (SPEED_BASE) * SPEED_RATIO;
+						mtSpeed_L = SPEED_BASE;
+					}
+					else if (distRight > DIST_STD_4) {
+						mcMode = 6;
+						mtSpeed_R = (SPEED_BASE) * SPEED_RATIO;
+						mtSpeed_L = SPEED_BASE;
+					}
+				}
+				else if (distLeft <= DIST_STD_2) {
+					if (distRight <= DIST_STD_1) {
+						mcMode = 5;
+						mtSpeed_R = SPEED_BASE;
+						mtSpeed_L = SPEED_BASE * SPEED_RATIO;
+					}
+					else if (distRight <= DIST_STD_2) {
+						if (distLeft >= distRight) {
+							mcMode = 5;
+							mtSpeed_R = SPEED_BASE;
+							mtSpeed_L = SPEED_BASE * SPEED_RATIO;
+						}
+						else if (distLeft < distRight) {
+							mcMode = 6;
+							mtSpeed_R = SPEED_BASE * SPEED_RATIO;
+							mtSpeed_L = SPEED_BASE;
+						}
+					}
+					else if (distRight <= DIST_STD_3) {
+						mcMode = 6;
+						mtSpeed_R = (SPEED_BASE + SPEED_AUTO_1) * SPEED_RATIO;
+						mtSpeed_L = SPEED_BASE + SPEED_AUTO_1;
+					}
+					else if (distRight <= DIST_STD_4) {
+						mcMode = 6;
+						mtSpeed_R = (SPEED_BASE + SPEED_AUTO_1) * SPEED_RATIO;
+						mtSpeed_L = SPEED_BASE + SPEED_AUTO_1;
+					}
+					else if (distRight > DIST_STD_4) {
+						mcMode = 6;
+						mtSpeed_R = (SPEED_BASE + SPEED_AUTO_2) * SPEED_RATIO;
+						mtSpeed_L = SPEED_BASE + SPEED_AUTO_2;
+					}
+				}
+				else if (distLeft <= DIST_STD_3) {
+					if (distRight <= DIST_STD_1) {
+						mcMode = 5;
+						mtSpeed_R = SPEED_BASE;
+						mtSpeed_L = SPEED_BASE * SPEED_RATIO;
+					}
+					else if (distRight <= DIST_STD_2) {
+						mcMode = 5;
+						mtSpeed_R = SPEED_BASE + SPEED_AUTO_1;
+						mtSpeed_L = (SPEED_BASE + SPEED_AUTO_1) * SPEED_RATIO;
+					}
+					else if (distRight <= DIST_STD_3) {
+						if (distLeft >= distRight) {
+							mcMode = 5;
+							mtSpeed_R = SPEED_BASE + SPEED_AUTO_1;
+							mtSpeed_L = (SPEED_BASE + SPEED_AUTO_1) * SPEED_RATIO;
+						}
+						else if (distLeft < distRight) {
+							mcMode = 6;
+							mtSpeed_R = (SPEED_BASE + SPEED_AUTO_1) * SPEED_RATIO;
+							mtSpeed_L = SPEED_BASE + SPEED_AUTO_1;
+						}
+					}
+					else if (distRight <= DIST_STD_4) {
+						mcMode = 6;
+						mtSpeed_R = (SPEED_BASE + SPEED_AUTO_2) * SPEED_RATIO;
+						mtSpeed_L = SPEED_BASE + SPEED_AUTO_2;
+					}
+					else if (distRight > DIST_STD_4) {
+						mcMode = 6;
+						mtSpeed_R = (SPEED_BASE + SPEED_AUTO_2) * SPEED_RATIO;
+						mtSpeed_L = SPEED_BASE + SPEED_AUTO_2;
+					}
+				}
+				else if (distLeft <= DIST_STD_4) {
+					if (distRight <= DIST_STD_1) {
+						mcMode = 5;
+						mtSpeed_R = SPEED_BASE + SPEED_AUTO_1;
+						mtSpeed_L = (SPEED_BASE + SPEED_AUTO_1) * SPEED_RATIO;
+					}
+					else if (distRight <= DIST_STD_2) {
+						mcMode = 5;
+						mtSpeed_R = SPEED_BASE + SPEED_AUTO_1;
+						mtSpeed_L = (SPEED_BASE + SPEED_AUTO_1) * SPEED_RATIO;
+					}
+					else if (distRight <= DIST_STD_3) {
+						mcMode = 5;
+						mtSpeed_R = SPEED_BASE + SPEED_AUTO_2;
+						mtSpeed_L = (SPEED_BASE + SPEED_AUTO_2) * SPEED_RATIO;
+					}
+					else if (distRight <= DIST_STD_4) {
+						mcMode = 1;
+						mtSpeed_R = SPEED_BASE + SPEED_AUTO_2;
+						mtSpeed_L = SPEED_BASE + SPEED_AUTO_2;
+					}
+					else if (distRight > DIST_STD_4) {
+						mcMode = 1;
+						mtSpeed_R = SPEED_BASE + SPEED_AUTO_3;
+						mtSpeed_L = SPEED_BASE + SPEED_AUTO_3;
+					}
+				}
+				else if (distLeft > DIST_STD_4) {
+					if (distRight <= DIST_STD_1) {
+						mcMode = 5;
+						mtSpeed_R = SPEED_BASE;
+						mtSpeed_L = (SPEED_BASE) * SPEED_RATIO;
+					}
+					else if (distRight <= DIST_STD_2) {
+						mcMode = 5;
+						mtSpeed_R = SPEED_BASE + SPEED_AUTO_1;
+						mtSpeed_L = (SPEED_BASE + SPEED_AUTO_1) * SPEED_RATIO;
+					}
+					else if (distRight <= DIST_STD_3) {
+						mcMode = 5;
+						mtSpeed_R = SPEED_BASE + SPEED_AUTO_2;
+						mtSpeed_L = (SPEED_BASE + SPEED_AUTO_2) * SPEED_RATIO;
+					}
+					else if (distRight <= DIST_STD_4) {
+						mcMode = 1;
+						mtSpeed_R = SPEED_BASE + SPEED_AUTO_3;
+						mtSpeed_L = SPEED_BASE + SPEED_AUTO_3;
+					}
+					else if (distRight > DIST_STD_4) {
+						mcMode = 1;
+						mtSpeed_R = SPEED_BASE + SPEED_AUTO_3;
+						mtSpeed_L = SPEED_BASE + SPEED_AUTO_3;
+					}
+				}
+			}
+
+			// 정면 기준 거리 4 Over
+			else if (distCenter > DIST_STD_4) {
+				if (distLeft <= DIST_STD_1) {
+					if (distRight <= DIST_STD_1) {
+						if (distLeft >= distRight) {
+							mcMode = 5;
+							mtSpeed_R = SPEED_BASE;
+							mtSpeed_L = SPEED_BASE * SPEED_RATIO;
+						}
+						else if (distLeft < distRight) {
+							mcMode = 6;
+							mtSpeed_R = SPEED_BASE * SPEED_RATIO;
+							mtSpeed_L = SPEED_BASE;
+						}
+					}
+					else if (distRight <= DIST_STD_2) {
+						mcMode = 6;
+						mtSpeed_R = SPEED_BASE * SPEED_RATIO;
+						mtSpeed_L = SPEED_BASE;
+					}
+					else if (distRight <= DIST_STD_3) {
+						mcMode = 6;
+						mtSpeed_R = SPEED_BASE * SPEED_RATIO;
+						mtSpeed_L = SPEED_BASE;
+					}
+					else if (distRight <= DIST_STD_4) {
+						mcMode = 6;
+						mtSpeed_R = (SPEED_BASE + SPEED_AUTO_1) * SPEED_RATIO;
+						mtSpeed_L = SPEED_BASE + SPEED_AUTO_1;
+					}
+					else if (distRight > DIST_STD_4) {
+						mcMode = 6;
+						mtSpeed_R = (SPEED_BASE + SPEED_AUTO_1) * SPEED_RATIO;
+						mtSpeed_L = SPEED_BASE + SPEED_AUTO_1;
+					}
+				}
+				else if (distLeft <= DIST_STD_2) {
+					if (distRight <= DIST_STD_1) {
+						mcMode = 5;
+						mtSpeed_R = SPEED_BASE;
+						mtSpeed_L = SPEED_BASE * SPEED_RATIO;
+					}
+					else if (distRight <= DIST_STD_2) {
+						if (distLeft >= distRight) {
+							mcMode = 5;
+							mtSpeed_R = SPEED_BASE + SPEED_AUTO_1;
+							mtSpeed_L = (SPEED_BASE + SPEED_AUTO_1) * SPEED_RATIO;
+						}
+						else if (distLeft < distRight) {
+							mcMode = 6;
+							mtSpeed_R = (SPEED_BASE + SPEED_AUTO_1) * SPEED_RATIO;
+							mtSpeed_L = SPEED_BASE + SPEED_AUTO_1;
+						}
+					}
+					else if (distRight <= DIST_STD_3) {
+						mcMode = 6;
+						mtSpeed_R = (SPEED_BASE + SPEED_AUTO_2) * SPEED_RATIO;
+						mtSpeed_L = SPEED_BASE + SPEED_AUTO_2;
+					}
+					else if (distRight <= DIST_STD_4) {
+						mcMode = 6;
+						mtSpeed_R = (SPEED_BASE + SPEED_AUTO_3) * SPEED_RATIO;
+						mtSpeed_L = SPEED_BASE + SPEED_AUTO_3;
+					}
+					else if (distRight > DIST_STD_4) {
+						mcMode = 6;
+						mtSpeed_R = (SPEED_BASE + SPEED_AUTO_3) * SPEED_RATIO;
+						mtSpeed_L = SPEED_BASE + SPEED_AUTO_3;
+					}
+				}
+				else if (distLeft <= DIST_STD_3) {
+					if (distRight <= DIST_STD_1) {
+						mcMode = 5;
+						mtSpeed_R = SPEED_BASE;
+						mtSpeed_L = SPEED_BASE * SPEED_RATIO;
+					}
+					else if (distRight <= DIST_STD_2) {
+						mcMode = 5;
+						mtSpeed_R = SPEED_BASE + SPEED_AUTO_2;
+						mtSpeed_L = (SPEED_BASE + SPEED_AUTO_2) * SPEED_RATIO;
+					}
+					else if (distRight <= DIST_STD_3) {
+						if (distLeft >= distRight) {
+							mcMode = 5;
+							mtSpeed_R = SPEED_BASE + SPEED_AUTO_2;
+							mtSpeed_L = (SPEED_BASE + SPEED_AUTO_2) * SPEED_RATIO;
+						}
+						else if (distLeft < distRight) {
+							mcMode = 6;
+							mtSpeed_R = (SPEED_BASE + SPEED_AUTO_2) * SPEED_RATIO;
+							mtSpeed_L = SPEED_BASE + SPEED_AUTO_2;
+						}
+					}
+					else if (distRight <= DIST_STD_4) {
+						mcMode = 6;
+						mtSpeed_R = (SPEED_BASE + SPEED_AUTO_3) * SPEED_RATIO;
+						mtSpeed_L = SPEED_BASE + SPEED_AUTO_3;
+					}
+					else if (distRight > DIST_STD_4) {
+						mcMode = 6;
+						mtSpeed_R = (SPEED_BASE + SPEED_AUTO_3) * SPEED_RATIO;
+						mtSpeed_L = SPEED_BASE + SPEED_AUTO_3;
+					}
+				}
+				else if (distLeft <= DIST_STD_4) {
+					if (distRight <= DIST_STD_1) {
+						mcMode = 5;
+						mtSpeed_R = SPEED_BASE + SPEED_AUTO_1;
+						mtSpeed_L = (SPEED_BASE + SPEED_AUTO_1) * SPEED_RATIO;
+					}
+					else if (distRight <= DIST_STD_2) {
+						mcMode = 5;
+						mtSpeed_R = SPEED_BASE + SPEED_AUTO_2;
+						mtSpeed_L = (SPEED_BASE + SPEED_AUTO_2) * SPEED_RATIO;
+					}
+					else if (distRight <= DIST_STD_3) {
+						mcMode = 5;
+						mtSpeed_R = SPEED_BASE + SPEED_AUTO_3;
+						mtSpeed_L = (SPEED_BASE + SPEED_AUTO_3) * SPEED_RATIO;
+					}
+					else if (distRight <= DIST_STD_4) {
+						mcMode = 1;
+						mtSpeed_R = SPEED_BASE + SPEED_AUTO_3;
+						mtSpeed_L = SPEED_BASE + SPEED_AUTO_3;
+					}
+					else if (distRight > DIST_STD_4) {
+						mcMode = 1;
+						mtSpeed_R = SPEED_BASE + SPEED_AUTO_3;
+						mtSpeed_L = SPEED_BASE + SPEED_AUTO_3;
+					}
+				}
+				else if (distLeft > DIST_STD_4) {
+					if (distRight <= DIST_STD_1) {
+						mcMode = 5;
+						mtSpeed_R = SPEED_BASE + SPEED_AUTO_1;
+						mtSpeed_L = (SPEED_BASE + SPEED_AUTO_1) * SPEED_RATIO;
+					}
+					else if (distRight <= DIST_STD_2) {
+						mcMode = 5;
+						mtSpeed_R = SPEED_BASE + SPEED_AUTO_2;
+						mtSpeed_L = (SPEED_BASE + SPEED_AUTO_2) * SPEED_RATIO;
+					}
+					else if (distRight <= DIST_STD_3) {
+						mcMode = 5;
+						mtSpeed_R = SPEED_BASE + SPEED_AUTO_3;
+						mtSpeed_L = (SPEED_BASE + SPEED_AUTO_3) * SPEED_RATIO;
+					}
+					else if (distRight <= DIST_STD_4) {
+						mcMode = 1;
+						mtSpeed_R = SPEED_BASE + SPEED_AUTO_3;
+						mtSpeed_L = SPEED_BASE + SPEED_AUTO_3;
+					}
+					else if (distRight > DIST_STD_4) {
+						mcMode = 1;
+						mtSpeed_R = SPEED_BASE + SPEED_AUTO_3;
+						mtSpeed_L = SPEED_BASE + SPEED_AUTO_3;
+					}
+				}
 			}
 		}
-
 		osDelay(10);
 	}
   /* USER CODE END AutoCTRTask */
