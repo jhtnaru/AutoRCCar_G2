@@ -1,6 +1,5 @@
 # STM32
 Debug/
-*.ioc
 *.launch
 *.log
 *.bin
