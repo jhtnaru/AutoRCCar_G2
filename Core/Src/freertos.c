@@ -62,15 +62,15 @@
 #define SPEED_RATIO				0.2
 
 #define SPEED_M_BT				65
-#define SPEED_AUTO_1				60
-#define SPEED_AUTO_2				60
-#define SPEED_AUTO_3				60
+#define SPEED_AUTO_1				70
+#define SPEED_AUTO_2				70
+#define SPEED_AUTO_3				70
 
-#define DIST_STD_0				7
+#define DIST_STD_0				5
 #define DIST_STD_1				15
 #define DIST_STD_2				25
-#define DIST_STD_3				35
-#define DIST_STD_4				45
+#define DIST_STD_3				40
+#define DIST_STD_4				55
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -134,7 +134,7 @@ osThreadId_t MotorCTRHandle;
 const osThreadAttr_t MotorCTR_attributes = {
   .name = "MotorCTR",
   .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityNormal,
+  .priority = (osPriority_t) osPriorityLow,
 };
 /* Definitions for JoystickCTR */
 osThreadId_t JoystickCTRHandle;
@@ -623,13 +623,13 @@ void UltrasonicCTRTask(void *argument)
   /* Infinite loop */
 	for(;;) {
 		HCSR04_TRIG1();
-		osDelay(50);
+		osDelay(60);
 
 		HCSR04_TRIG2();
-		osDelay(50);
+		osDelay(60);
 
 		HCSR04_TRIG3();
-		osDelay(50);
+		osDelay(40);
 	}
   /* USER CODE END UltrasonicCTRTask */
 }
