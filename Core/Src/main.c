@@ -32,6 +32,7 @@
 #include "delay_us.h"
 #include "fnd.h"
 #include "motor.h"
+#include "ultrasonic.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/

@@ -12,6 +12,14 @@ BUTTON_CONTROL button[1] = {
 		{GPIOD, GPIO_PIN_2, 0}
 };
 
+uint8_t buttonFlag = 0;
+
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
+	if (GPIO_Pin == GPIO_PIN_2) {
+		buttonFlag = 1;
+	}
+}
+
 // Button이 눌리면 Debounce 처리해서 True 반환
 bool buttonGetPressed(uint8_t num) {
 	static uint32_t prevTime = 0xffffffff;		// 초기값 최대치 설정, 처음부터 Debounce

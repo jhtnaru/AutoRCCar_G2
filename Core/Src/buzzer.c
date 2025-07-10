@@ -33,6 +33,7 @@ uint8_t songNote_1[] = {
 uint8_t songLength_1[] = {
 		4, 4, 4, 4, 4, 4, 4, 4, 4, 8, 4, 4, 4, 4, 4, 4, 4, 4, 4, 8
 };
+uint8_t songNote_1_Len = sizeof(songNote_1) / sizeof(songNote_1[0]);
 
 // 엘리제를 위하여
 uint8_t songNote_2[] = {
@@ -49,6 +50,7 @@ uint8_t songLength_2[] = {
 		4, 4, 4, 4, 8, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 12,
 		4, 4, 4, 12, 4, 4, 4, 12
 };
+uint8_t songNote_2_Len = sizeof(songNote_2) / sizeof(songNote_2[0]);
 
 // 이웃집 토토로 OST 산책?
 uint8_t songNote_3[] = {
@@ -61,6 +63,7 @@ uint8_t songLength_3[] = {
 		4, 4, 4, 4, 2, 4, 4, 4, 4, 2, 4, 4, 4, 2, 4, 4, 4, 2,
 		4, 4, 4, 4, 4, 2, 4, 4, 4, 4, 4, 2,	4, 4, 4, 4, 2, 1
 };
+uint8_t songNote_3_Len = sizeof(songNote_3) / sizeof(songNote_3[0]);
 
 // 하울의 움직이는 성 OST 인생의 회전목마?
 uint8_t songNote_4[] = {
@@ -91,3 +94,4 @@ uint8_t songLength_4[] = {
 		// Outro
 		8, 8, 8, 8, 4, 4, 4, 4, 1
 };
+uint8_t songNote_4_Len = sizeof(songNote_4) / sizeof(songNote_4[0]);

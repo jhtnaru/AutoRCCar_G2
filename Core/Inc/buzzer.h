@@ -14,12 +14,16 @@
 
 extern uint8_t songNote_1[];		// 똑같아요
 extern uint8_t songLength_1[];
+extern uint8_t songNote_1_Len;
 extern uint8_t songNote_2[];		// 엘리제를 위하여
 extern uint8_t songLength_2[];
+extern uint8_t songNote_2_Len;
 extern uint8_t songNote_3[];		// 이웃집 토토로 OST 산책?
 extern uint8_t songLength_3[];
+extern uint8_t songNote_3_Len;
 extern uint8_t songNote_4[];		// 하울의 움직이는 성 OST 인생의 회전목마?
 extern uint8_t songLength_4[];
+extern uint8_t songNote_4_Len;
 
 void buzzerStart(uint8_t index, uint16_t volumn);
 

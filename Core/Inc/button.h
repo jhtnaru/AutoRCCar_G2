@@ -17,6 +17,8 @@ typedef struct {
 	GPIO_PinState		onState;
 } BUTTON_CONTROL;
 
+extern uint8_t buttonFlag;
+
 bool buttonGetPressed(uint8_t num);
 
 #endif /* INC_BUTTON_H_ */
