@@ -37,7 +37,9 @@
 #include "buzzer.h"
 #include "delay_us.h"
 #include "fnd.h"
+#include "lcd.h"
 #include "motor.h"
+#include "ultrasonic.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -62,6 +64,12 @@
 #define DIST_STD_14				45
 
 #define BUZZER_TICK				50
+
+#define PHOTO_PORT_1				GPIOA
+#define PHOTO_PIN_1				GPIO_PIN_1
+#define PHOTO_PORT_2				GPIOA
+#define PHOTO_PIN_2				GPIO_PIN_4
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -104,10 +112,18 @@ uint8_t btSpeed = 0;
 
 extern uint8_t distCenter, distLeft, distRight;
 
-uint32_t tickCur_1 = 0, tickLast_1 = 0;		// Buzzer용
+uint32_t tickCur_1 = 0, tickLast_1 = 0;		// Buzzer Tick
+uint8_t buzzerFlag_1 = 0, songIndex_1 = 0;	// 일반 Buzzer
+uint8_t buzzerFlag_2 = 0, songIndex_2 = 0;	// 후진 Buzzer
 
-uint8_t buzzerFlag_1 = 0, songIndex_1 = 0;	//
-uint8_t buzzerFlag_2 = 0, songIndex_2 = 0;
+uint8_t lcdMode = 0;
+
+uint8_t rxPhoto_1 = 0, rxPhoto_2 = 0;
+uint8_t photoFlag_1 = 0, photoFlag_2 = 0;
+uint16_t countRight = 0, countLeft = 0;
+uint32_t tickCur_2 = 0, tickLast_2 = 0;		// PhotoInterrupt Tick
+uint8_t mpmRight = 0, mpmLeft = 0;
+char mpmSpeed[16];
 /* USER CODE END Variables */
 /* Definitions for MotorCTR */
 osThreadId_t MotorCTRHandle;
@@ -116,10 +132,10 @@ const osThreadAttr_t MotorCTR_attributes = {
   .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityLow,
 };
-/* Definitions for JoystickCTR */
-osThreadId_t JoystickCTRHandle;
-const osThreadAttr_t JoystickCTR_attributes = {
-  .name = "JoystickCTR",
+/* Definitions for StateOutput */
+osThreadId_t StateOutputHandle;
+const osThreadAttr_t StateOutput_attributes = {
+  .name = "StateOutput",
   .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityLow,
 };
@@ -170,7 +186,6 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 		else if (rxData_1 > 64) {
 			btMode = rxData_1;
 		}
-
 		HAL_UART_Receive_DMA(&huart1, &rxData_1, 1);
 	}
 
@@ -182,7 +197,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 /* USER CODE END FunctionPrototypes */
 
 void MotorCTRTask(void *argument);
-void JoystickCTRTask(void *argument);
+void StateOutputTask(void *argument);
 void BluetoothCTRTask(void *argument);
 void ModeCTRTask(void *argument);
 void UltrasonicCTRTask(void *argument);
@@ -221,8 +236,8 @@ HAL_UART_Receive_DMA(&huart2, &rxData_2, 1);
   /* creation of MotorCTR */
   MotorCTRHandle = osThreadNew(MotorCTRTask, NULL, &MotorCTR_attributes);
 
-  /* creation of JoystickCTR */
-  JoystickCTRHandle = osThreadNew(JoystickCTRTask, NULL, &JoystickCTR_attributes);
+  /* creation of StateOutput */
+  StateOutputHandle = osThreadNew(StateOutputTask, NULL, &StateOutput_attributes);
 
   /* creation of BluetoothCTR */
   BluetoothCTRHandle = osThreadNew(BluetoothCTRTask, NULL, &BluetoothCTR_attributes);
@@ -264,27 +279,146 @@ void MotorCTRTask(void *argument)
 		TIM4->CCR2 = mtSpeed_R;
 		TIM4->CCR1 = mtSpeed_L;
 
-		osDelay(10);
+		rxPhoto_1 = HAL_GPIO_ReadPin(PHOTO_PORT_1, PHOTO_PIN_1);
+		rxPhoto_2 = HAL_GPIO_ReadPin(PHOTO_PORT_2, PHOTO_PIN_2);
+
+		if (rxPhoto_1 == 1 && rxPhoto_1 != photoFlag_1) {
+			countRight++;
+			photoFlag_1 = rxPhoto_1;
+		}
+		else if (rxPhoto_1 == 0) {
+			photoFlag_1 = rxPhoto_1;
+		}
+
+		if (rxPhoto_2 == 1 && rxPhoto_2 != photoFlag_2) {
+			countLeft++;
+			photoFlag_2 = rxPhoto_2;
+		}
+		else if (rxPhoto_2 == 0) {
+			photoFlag_2 = rxPhoto_2;
+		}
+
+		tickCur_2 = xTaskGetTickCount();
+
+		if ((tickCur_2 - tickLast_2) > 1000) {
+			mpmRight = (countRight * 63) / 100;
+			mpmLeft = (countLeft * 63) / 100;
+			sprintf(mpmSpeed, " R %2d L %2d mpm  ", mpmRight, mpmLeft);
+
+			countRight = 0;
+			countLeft = 0;
+			tickLast_2 = tickCur_2;
+		}
+
+		osDelay(1);
 	}
   /* USER CODE END MotorCTRTask */
 }
 
-/* USER CODE BEGIN Header_JoystickCTRTask */
+/* USER CODE BEGIN Header_StateOutputTask */
 /**
-* @brief Function implementing the JoystickCTR thread.
+* @brief Function implementing the StateOutput thread.
 * @param argument: Not used
 * @retval None
 */
-/* USER CODE END Header_JoystickCTRTask */
-void JoystickCTRTask(void *argument)
+/* USER CODE END Header_StateOutputTask */
+void StateOutputTask(void *argument)
 {
-  /* USER CODE BEGIN JoystickCTRTask */
-//	HAL_ADC_Start_DMA(&hadc1, adcValue, 2);
+  /* USER CODE BEGIN StateOutputTask */
   /* Infinite loop */
 	for(;;) {
+		moveCursor(0, 0);
+		switch (ctrMode) {
+			case 1:
+				lcdString("BT Mode ");
+				break;
+			case 2:
+				lcdString("AutoMode");
+				break;
+			case 4: case 6: case 8:
+				lcdString("AutoTest");
+				break;
+			default:
+				lcdString("Ready   ");
+				break;
+		}
+
+		moveCursor(0, 8);
+		switch (mcMode) {
+			case 0: case 7:
+				lcdString(" Stop   ");
+				break;
+			case 1:
+				lcdString(" Front  ");
+				break;
+			case 2:
+				lcdString(" Back   ");
+				break;
+			case 3: case 5:
+				lcdString(" Left   ");
+				break;
+			case 4: case 6:
+				lcdString(" Right  ");
+				break;
+			default:
+				lcdString("        ");
+				break;
+		}
+
+		moveCursor(1, 0);
+		lcdString(mpmSpeed);
+
+		fndOut(ctrMode);
+
+		if (ctrMode == 1 && rxData_1 == 'X') {
+			buzzerFlag_1 = 1;
+		}
+		else if (ctrMode == 1 && rxData_1 == 'x') {
+			buzzerFlag_1 = 0;
+		}
+		else if (ctrMode == 2) {
+			buzzerFlag_1 = 1;
+		}
+		else {
+			buzzerFlag_1 = 0;
+		}
+
+		if (ctrMode == 1 && mcMode == 2) {
+			buzzerFlag_2 = 1;
+		}
+		else {
+			buzzerFlag_2 = 0;
+		}
+
+		tickCur_1 = xTaskGetTickCount();
+
+		if (buzzerFlag_1 == 1) {
+			if ((tickCur_1 - tickLast_1) >= (BUZZER_TICK * songLength_4[songIndex_1])) {
+				songIndex_1++;
+				if (songIndex_1 >= songNote_4_Len) {
+					songIndex_1 = 0;
+				}
+				tickLast_1 = tickCur_1;
+			}
+			buzzerStart(songNote_4[songIndex_1], baseSpeed_0);
+		}
+		else if (buzzerFlag_1 == 0 && buzzerFlag_2 == 1) {
+			if ((tickCur_1 - tickLast_1) >= (BUZZER_TICK * songLength_2[songIndex_2])) {
+				songIndex_2++;
+				if (songIndex_2 >= songNote_2_Len) {
+					songIndex_2 = 0;
+				}
+				tickLast_1 = tickCur_1;
+			}
+			buzzerStart(songNote_2[songIndex_2], baseSpeed_0);
+		}
+		else if (buzzerFlag_1 == 0 && buzzerFlag_2 == 0) {
+			buzzerStart(24, 0);
+		}
+
 		osDelay(10);
 	}
-  /* USER CODE END JoystickCTRTask */
+  /* USER CODE END StateOutputTask */
 }
 
 /* USER CODE BEGIN Header_BluetoothCTRTask */
@@ -374,7 +508,7 @@ void ModeCTRTask(void *argument)
 			ctrMode++;
 			buttonFlag = 0;
 			rxData_1 = 'S';
-			if (ctrMode >= 9) {
+			if (ctrMode >= 5) {
 				ctrMode = 0;
 			}
 		}
@@ -384,54 +518,6 @@ void ModeCTRTask(void *argument)
 			mtSpeed_R = 0;
 			mtSpeed_L = 0;
 		}
-
-		if (ctrMode == 1 && rxData_1 == 'X') {
-			buzzerFlag_1 = 1;
-		}
-		else if (ctrMode == 1 && rxData_1 == 'x') {
-			buzzerFlag_1 = 0;
-		}
-		else if (ctrMode == 2) {
-			buzzerFlag_1 = 1;
-		}
-		else {
-			buzzerFlag_1 = 0;
-		}
-
-		if (ctrMode == 1 && mcMode == 2) {
-			buzzerFlag_2 = 1;
-		}
-		else {
-			buzzerFlag_2 = 0;
-		}
-
-		tickCur_1 = xTaskGetTickCount();
-
-		if (buzzerFlag_1 == 1) {
-			if ((tickCur_1 - tickLast_1) >= (BUZZER_TICK * songLength_4[songIndex_1])) {
-				songIndex_1++;
-				if (songIndex_1 >= songNote_4_Len) {
-					songIndex_1 = 0;
-				}
-				tickLast_1 = tickCur_1;
-			}
-			buzzerStart(songNote_4[songIndex_1], baseSpeed_0);
-		}
-		else if (buzzerFlag_1 == 0 && buzzerFlag_2 == 1) {
-			if ((tickCur_1 - tickLast_1) >= (BUZZER_TICK * songLength_2[songIndex_2])) {
-				songIndex_2++;
-				if (songIndex_2 >= songNote_2_Len) {
-					songIndex_2 = 0;
-				}
-				tickLast_1 = tickCur_1;
-			}
-			buzzerStart(songNote_2[songIndex_2], baseSpeed_0);
-		}
-		else if (buzzerFlag_1 == 0 && buzzerFlag_2 == 0) {
-			buzzerStart(24, 0);
-		}
-
-		fndOut(ctrMode);
 
 		osDelay(10);
 	}

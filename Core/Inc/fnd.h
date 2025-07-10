@@ -8,6 +8,7 @@
 #define INC_FND_H_
 
 #include "main.h"
+#include "delay_us.h"
 
 #define SER_PORT			GPIOB
 #define SER_PIN			GPIO_PIN_3

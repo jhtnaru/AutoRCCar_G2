@@ -31,6 +31,7 @@
 #include "buzzer.h"
 #include "delay_us.h"
 #include "fnd.h"
+#include "lcd.h"
 #include "motor.h"
 #include "ultrasonic.h"
 /* USER CODE END Includes */
@@ -117,6 +118,8 @@ int main(void)
   HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_2);
   // delay_us Timer
   HAL_TIM_Base_Start(&htim11);
+  // LCD Initialize
+  i2cLCD_Init();
   /* USER CODE END 2 */
 
   /* Init scheduler */
